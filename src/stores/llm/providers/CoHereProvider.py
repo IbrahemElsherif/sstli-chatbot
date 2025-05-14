@@ -66,16 +66,19 @@ class CoHereProvider(LLMInterface):
         
         return response.text
     
-    def embed_text(self, text: str):
+    def embed_text(self, text: str, document_type: str = None):
         max_retries = 3
         retry_delay = 2  # seconds
+
+        if not document_type:
+            document_type = DocumentTypeEnum.DOCUMENT.value
 
         for attempt in range(max_retries):
             try:
                 response = self.client.embed(
-                    texts=[text],
+                    texts=[self.process_text(text)],
                     model=self.embedding_model_id,
-                    input_type=DocumentTypeEnum.SEARCH_QUERY.value
+                    input_type=document_type
                 )
                 return response.embeddings[0]
             except TooManyRequestsError:

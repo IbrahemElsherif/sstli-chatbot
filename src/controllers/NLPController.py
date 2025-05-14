@@ -4,6 +4,7 @@ from stores.llm.LLMEnums import DocumentTypeEnum
 from typing import List
 import json
 import time
+import logging
 
 class NLPController(BaseController):
 
@@ -15,6 +16,7 @@ class NLPController(BaseController):
         self.generation_client = generation_client
         self.embedding_client = embedding_client
         self.template_parser = template_parser
+        self.logger = logging.getLogger(__name__)
 
     def create_collection_name(self, project_id: str):
         return f"collection_{project_id}".strip()
@@ -31,10 +33,18 @@ class NLPController(BaseController):
             json.dumps(collection_info, default=lambda x: x.__dict__)
         )
     
-    def index_into_vector_db(self, collection_name: str, texts: list, metadata: list = None, do_reset: bool = False):
+    def index_into_vector_db(self, project: Project, chunks: List[DataChunk],
+                           do_reset: bool = False, chunks_ids: List[int] = None):
         
+        # step1: get collection name
+        collection_name = self.create_collection_name(project_id=project.project_id)
+
+        # step2: manage items
+        texts = [c.chunk_text for c in chunks]
+        metadata = [c.chunk_metadata for c in chunks]
+
         if not texts:
-            return False
+            return True
 
         # Create collection
         self.vectordb_client.create_collection(
@@ -43,32 +53,54 @@ class NLPController(BaseController):
             do_reset=do_reset
         )
 
-        # Process in smaller batches to avoid rate limits
-        batch_size = 10  # Process 10 documents at a time
-        for i in range(0, len(texts), batch_size):
-            batch_texts = texts[i:i+batch_size]
-            batch_metadata = metadata[i:i+batch_size] if metadata else None
-
-            # Get embeddings for the batch
+        # Process in larger batches for vector DB insertion
+        vectordb_batch_size = 50
+        embedding_batch_size = 10  # Smaller batch for embeddings due to rate limits
+        
+        # Process embeddings in smaller batches
+        all_vectors = []
+        for i in range(0, len(texts), embedding_batch_size):
+            batch_end = min(i + embedding_batch_size, len(texts))
+            batch_texts = texts[i:batch_end]
+            
             try:
-                vectors = [
-                    self.embedding_client.embed_text(text=text)
-                    for text in batch_texts
-                ]
+                # Get embeddings for the batch
+                vectors = []
+                for text in batch_texts:
+                    try:
+                        vector = self.embedding_client.embed_text(text=text)
+                        if vector:
+                            vectors.append(vector)
+                    except Exception as e:
+                        self.logger.error(f"Error embedding text: {str(e)}")
+                        time.sleep(2)  # Wait before retrying
+                        continue
+                
+                all_vectors.extend(vectors)
+                
+                # Add delay between embedding batches to respect rate limits
+                if batch_end < len(texts):
+                    time.sleep(1)  # 1 second delay between batches
+                
+            except Exception as e:
+                self.logger.error(f"Error processing embedding batch: {str(e)}")
+                continue
 
-                # Insert the batch into vector DB
+        # Now insert all vectors in larger batches
+        for i in range(0, len(all_vectors), vectordb_batch_size):
+            batch_end = min(i + vectordb_batch_size, len(all_vectors))
+            
+            try:
                 self.vectordb_client.insert_many(
                     collection_name=collection_name,
-                    texts=batch_texts,
-                    vectors=vectors,
-                    metadata=batch_metadata
+                    texts=texts[i:batch_end],
+                    vectors=all_vectors[i:batch_end],
+                    metadata=metadata[i:batch_end] if metadata else None,
+                    record_ids=chunks_ids[i:batch_end] if chunks_ids else None,
+                    batch_size=vectordb_batch_size
                 )
-
-                # Add a small delay between batches
-                time.sleep(1)  # 1 second delay between batches
-
             except Exception as e:
-                self.logger.error(f"Error while indexing batch: {e}")
+                self.logger.error(f"Error inserting vectors batch: {str(e)}")
                 continue
 
         return True

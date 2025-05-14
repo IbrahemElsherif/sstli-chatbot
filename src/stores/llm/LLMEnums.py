@@ -19,5 +19,5 @@ class CoHereEnums(Enum):
 
 
 class DocumentTypeEnum(Enum):
-    DOCUMENT = "document"
-    QUERY = "query"
+    DOCUMENT = "search_document"
+    QUERY = "search_query"
