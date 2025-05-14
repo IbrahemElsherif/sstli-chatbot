@@ -2,6 +2,8 @@ from ..LLMInterface import LLMInterface
 from ..LLMEnums import CoHereEnums, DocumentTypeEnum
 import cohere
 import logging
+import time
+from cohere.errors import TooManyRequestsError
 
 class CoHereProvider(LLMInterface):
 
@@ -64,31 +66,27 @@ class CoHereProvider(LLMInterface):
         
         return response.text
     
-    def embed_text(self, text: str, document_type: str = None):
-        if not self.client:
-            self.logger.error("CoHere client was not set")
-            return None
-        
-        if not self.embedding_model_id:
-            self.logger.error("Embedding model for CoHere was not set")
-            return None
-        
-        input_type = CoHereEnums.DOCUMENT
-        if document_type == DocumentTypeEnum.QUERY:
-            input_type = CoHereEnums.QUERY
+    def embed_text(self, text: str):
+        max_retries = 3
+        retry_delay = 2  # seconds
 
-        response = self.client.embed(
-            model = self.embedding_model_id,
-            texts = [self.process_text(text)],
-            input_type = input_type,
-            embedding_types=['float'],
-        )
-
-        if not response or not response.embeddings or not response.embeddings.float:
-            self.logger.error("Error while embedding text with CoHere")
-            return None
-        
-        return response.embeddings.float[0]
+        for attempt in range(max_retries):
+            try:
+                response = self.client.embed(
+                    texts=[text],
+                    model=self.embedding_model_id,
+                    input_type=DocumentTypeEnum.SEARCH_QUERY.value
+                )
+                return response.embeddings[0]
+            except TooManyRequestsError:
+                if attempt < max_retries - 1:  # don't sleep on the last attempt
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # exponential backoff
+                else:
+                    raise  # re-raise the exception if we've exhausted our retries
+            except Exception as e:
+                self.logger.error(f"Error while embedding text: {e}")
+                raise e
     
     def construct_prompt(self, prompt: str, role: str):
         return {

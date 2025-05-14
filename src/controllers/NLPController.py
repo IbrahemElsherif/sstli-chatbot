@@ -3,6 +3,7 @@ from models.db_schemes import Project, DataChunk
 from stores.llm.LLMEnums import DocumentTypeEnum
 from typing import List
 import json
+import time
 
 class NLPController(BaseController):
 
@@ -30,37 +31,45 @@ class NLPController(BaseController):
             json.dumps(collection_info, default=lambda x: x.__dict__)
         )
     
-    def index_into_vector_db(self, project: Project, chunks: List[DataChunk],
-                                   chunks_ids: List[int], 
-                                   do_reset: bool = False):
+    def index_into_vector_db(self, collection_name: str, texts: list, metadata: list = None, do_reset: bool = False):
         
-        # step1: get collection name
-        collection_name = self.create_collection_name(project_id=project.project_id)
+        if not texts:
+            return False
 
-        # step2: manage items
-        texts = [ c.chunk_text for c in chunks ]
-        metadata = [ c.chunk_metadata for c in  chunks]
-        vectors = [
-            self.embedding_client.embed_text(text=text, 
-                                             document_type=DocumentTypeEnum.DOCUMENT.value)
-            for text in texts
-        ]
-
-        # step3: create collection if not exists
-        _ = self.vectordb_client.create_collection(
+        # Create collection
+        self.vectordb_client.create_collection(
             collection_name=collection_name,
-            embedding_size=self.embedding_client.embedding_size,
-            do_reset=do_reset,
+            embedding_size=self.app_settings.EMBEDDING_MODEL_SIZE,
+            do_reset=do_reset
         )
 
-        # step4: insert into vector db
-        _ = self.vectordb_client.insert_many(
-            collection_name=collection_name,
-            texts=texts,
-            metadata=metadata,
-            vectors=vectors,
-            record_ids=chunks_ids,
-        )
+        # Process in smaller batches to avoid rate limits
+        batch_size = 10  # Process 10 documents at a time
+        for i in range(0, len(texts), batch_size):
+            batch_texts = texts[i:i+batch_size]
+            batch_metadata = metadata[i:i+batch_size] if metadata else None
+
+            # Get embeddings for the batch
+            try:
+                vectors = [
+                    self.embedding_client.embed_text(text=text)
+                    for text in batch_texts
+                ]
+
+                # Insert the batch into vector DB
+                self.vectordb_client.insert_many(
+                    collection_name=collection_name,
+                    texts=batch_texts,
+                    vectors=vectors,
+                    metadata=batch_metadata
+                )
+
+                # Add a small delay between batches
+                time.sleep(1)  # 1 second delay between batches
+
+            except Exception as e:
+                self.logger.error(f"Error while indexing batch: {e}")
+                continue
 
         return True
 
