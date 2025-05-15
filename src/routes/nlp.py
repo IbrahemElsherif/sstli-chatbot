@@ -135,18 +135,20 @@ async def search_index(request: Request, project_id: str, search_request: Search
         project=project, text=search_request.text, limit=search_request.limit
     )
 
-    if not results:
+    if results is False:
+        logger.warning(f"Search returned no results for query: {search_request.text}")
+        # Return empty results instead of error
         return JSONResponse(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                content={
-                    "signal": ResponseSignal.VECTORDB_SEARCH_ERROR.value
-                }
-            )
+            content={
+                "signal": ResponseSignal.VECTORDB_SEARCH_SUCCESS.value,
+                "results": []
+            }
+        )
     
     return JSONResponse(
         content={
             "signal": ResponseSignal.VECTORDB_SEARCH_SUCCESS.value,
-            "results": [ result.dict()  for result in results ]
+            "results": [ result.dict() for result in results ]
         }
     )
 
@@ -175,11 +177,14 @@ async def answer_rag(request: Request, project_id: str, search_request: SearchRe
     )
 
     if not answer:
+        logger.warning(f"RAG answer not generated for query: {search_request.text}")
         return JSONResponse(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                content={
-                    "signal": ResponseSignal.RAG_ANSWER_ERROR.value
-                }
+            content={
+                "signal": ResponseSignal.RAG_ANSWER_SUCCESS.value,
+                "answer": "I couldn't find relevant information to answer your question. Please try a different query.",
+                "full_prompt": "",
+                "chat_history": []
+            }
         )
     
     return JSONResponse(
