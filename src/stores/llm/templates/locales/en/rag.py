@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+# Language: Python
 from string import Template
 
 #### RAG PROMPTS ####
