@@ -1,8 +1,14 @@
 from enum import Enum
 
+class ModelType(Enum):
+    GENERATION = "generation"
+    EMBEDDING = "embedding"
+
 class LLMEnums(Enum):
     OPENAI = "OPENAI"
     COHERE = "COHERE"
+    HUGGINGFACE = "HUGGINGFACE"
+    HUGGINGFACE_LOCAL = "HUGGINGFACE_LOCAL"
 
 class OpenAIEnums(Enum):
     SYSTEM = "system"
@@ -12,12 +18,16 @@ class OpenAIEnums(Enum):
 class CoHereEnums(Enum):
     SYSTEM = "SYSTEM"
     USER = "USER"
-    ASSISTANT = "CHATBOT"
+    ASSISTANT = "ASSISTANT"
 
     DOCUMENT = "search_document"
     QUERY = "search_query"
 
+class HuggingFaceEnums(Enum):
+    SYSTEM = "system"
+    USER = "user"
+    ASSISTANT = "assistant"
 
 class DocumentTypeEnum(Enum):
-    DOCUMENT = "document"
-    QUERY = "query"
+    SEARCH_DOCUMENT = "search_document"
+    QUERY = "search_query"
