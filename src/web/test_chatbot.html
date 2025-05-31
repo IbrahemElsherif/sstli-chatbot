@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Chatbot Widget</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            min-height: 100vh;
+        }
+        .content {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        p {
+            line-height: 1.6;
+            color: #666;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="content">
+        <h1>مرحباً بكم في موقع الاختبار</h1>
+        <p>هذه صفحة اختبار لـ widget الدردشة. يجب أن ترى أيقونة الدردشة في الزاوية اليسرى السفلى من الشاشة.</p>
+        <p>انقر على الأيقونة لفتح نافذة الدردشة واختبار الـ API.</p>
+        <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+        <p>Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.</p>
+    </div>
+
+    <script>
+    (function () {
+      // إنشاء CSS
+      const style = document.createElement("style");
+      style.textContent = `
+        /* استيراد خط Cairo من Google Fonts */
+        @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
+
+        .chat-toggle {
+          position: fixed;
+          left: 20px;
+          bottom: 20px;
+          z-index: 9999;
+          cursor: pointer;
+        }
+        .chat-toggle div {
+          width: 60px;
+          height: 60px;
+          background-color: #1e40af;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+          transition: transform 0.3s ease-in-out;
+        }
+        .chat-toggle div:hover {
+          transform: scale(1.1);
+          animation: pulse 1s linear infinite;
+        }
+        .chat-toggle div::after {
+          content: "💬";
+          font-size: 24px;
+          color: white;
+        }
+        @keyframes pulse {
+          0%, 100% { transform: scale(1.1); }
+          50% { transform: scale(1.2); }
+        }
+        .chat-container {
+          position: fixed;
+          left: 20px;
+          bottom: 90px;
+          max-width: 400px;
+          width: 90vw;
+          background-color: #141414;
+          border-radius: 10px;
+          box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+          display: none;
+          flex-direction: column;
+          height: 500px;
+          overflow: hidden;
+          z-index: 9998;
+          font-family: 'Cairo', sans-serif;
+        }
+        .chat-header {
+          padding: 15px;
+          border-bottom: 1px solid #333;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          background-color: #202020;
+        }
+        .chat-header h2 {
+          font-size: 16px;
+          color: #fff;
+          margin: 0;
+          font-family: 'Cairo', sans-serif;
+        }
+        .status {
+          background-color: #22c55e;
+          color: white;
+          font-size: 11px;
+          padding: 4px 8px;
+          border-radius: 12px;
+          font-family: 'Cairo', sans-serif;
+        }
+        .chat-body {
+          flex: 1;
+          padding: 15px;
+          overflow-y: auto;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          background-color: #141414;
+        }
+        .chat-message {
+          max-width: 80%;
+          padding: 10px 14px;
+          font-size: 14px;
+          border-radius: 18px;
+          color: white;
+          direction: rtl;
+          font-family: 'Cairo', sans-serif;
+          line-height: 1.4;
+        }
+        .chat-message.user {
+          align-self: flex-start;
+          background-color: #1e40af;
+          color: #fff;
+        }
+        .chat-message.bot {
+          align-self: flex-end;
+          background-color: #374151;
+          color: #fff;
+        }
+        .chat-footer {
+          padding: 15px;
+          border-top: 1px solid #333;
+          display: flex;
+          gap: 10px;
+          background-color: #141414;
+        }
+        .chat-footer input {
+          flex: 1;
+          padding: 12px;
+          font-size: 14px;
+          border-radius: 25px;
+          border: 1px solid #444;
+          background-color: #202020;
+          color: white;
+          font-family: 'Cairo', sans-serif;
+          outline: none;
+        }
+        .chat-footer input::placeholder {
+          color: #888;
+        }
+        .chat-footer input:focus {
+          border-color: #1e40af;
+        }
+        .chat-footer button {
+          padding: 12px 16px;
+          background-color: #1e40af;
+          color: white;
+          font-weight: bold;
+          border: none;
+          border-radius: 25px;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          font-family: 'Cairo', sans-serif;
+          min-width: 60px;
+        }
+        .chat-footer button:hover:not(:disabled) {
+          background-color: #1d4ed8;
+          transform: translateY(-1px);
+        }
+        .chat-footer button:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+          transform: none;
+        }
+        .typing {
+          align-self: flex-end;
+          background-color: #374151;
+          color: white;
+          padding: 10px 14px;
+          border-radius: 18px;
+          font-size: 14px;
+          max-width: 80%;
+          display: inline-flex;
+          gap: 4px;
+          align-items: center;
+          font-family: 'Cairo', sans-serif;
+        }
+        .typing span {
+          width: 6px;
+          height: 6px;
+          background-color: #888;
+          border-radius: 50%;
+          animation: blink 1.4s infinite both;
+        }
+        .typing span:nth-child(2) { animation-delay: 0.2s; }
+        .typing span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes blink {
+          0%, 80%, 100% { opacity: 0.3; }
+          40% { opacity: 1; }
+        }
+        .error-message {
+          background-color: #dc2626 !important;
+          color: white !important;
+        }
+        @media(max-width:600px) {
+          .chat-container {
+            width: calc(100vw - 40px);
+            left: 20px;
+            right: 20px;
+            bottom: 90px;
+          }
+        }
+      `;
+      document.head.appendChild(style);
+
+      // زر فتح الشات
+      const toggle = document.createElement("div");
+      toggle.className = "chat-toggle";
+      const icon = document.createElement("div");
+      toggle.appendChild(icon);
+      document.body.appendChild(toggle);
+
+      // واجهة الشات
+      const container = document.createElement("div");
+      container.className = "chat-container";
+      container.innerHTML = `
+        <div class="chat-header">
+          <h2>مساعد الدردشة</h2>
+          <div class="status">متصل</div>
+        </div>
+        <div class="chat-body" id="chatDisplay">
+          <div class="chat-message bot">مرحباً! كيف يمكنني مساعدتك اليوم؟</div>
+        </div>
+        <div class="chat-footer">
+          <input type="text" id="chatInput" placeholder="اكتب رسالتك هنا..." />
+          <button id="sendButton">إرسال</button>
+        </div>
+      `;
+      document.body.appendChild(container);
+
+      const chatDisplay = container.querySelector("#chatDisplay");
+      const chatInput = container.querySelector("#chatInput");
+      const sendButton = container.querySelector("#sendButton");
+
+      // فتح/إغلاق الدردشة
+      toggle.addEventListener("click", () => {
+        const isVisible = container.style.display === "flex";
+        container.style.display = isVisible ? "none" : "flex";
+        if (!isVisible) {
+          chatInput.focus();
+        }
+      });
+
+      // إضافة رسالة
+      function addMessage(text, sender = "user") {
+        const msg = document.createElement("div");
+        msg.className = `chat-message ${sender}`;
+        msg.textContent = text;
+        chatDisplay.appendChild(msg);
+        chatDisplay.scrollTop = chatDisplay.scrollHeight;
+      }
+
+      // إرسال رسالة للـ API
+      async function sendMessageToAPI(message) {
+        try {
+          console.log("Sending message:", message);
+          
+          const response = await fetch("https://1206-144-86-46-234.ngrok-free.app/api/v1/nlp/index/answer/1", {
+            method: "POST",
+            headers: { 
+              "Content-Type": "application/json",
+              "ngrok-skip-browser-warning": "true"
+            },
+            body: JSON.stringify({ 
+              text: message, 
+              limit: 5 
+            })
+          });
+          
+          console.log("Response status:", response.status);
+          
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+          
+          const data = await response.json();
+          console.log("Response data:", data);
+          
+          return data.answer || "عذراً، لم أتمكن من العثور على إجابة مناسبة.";
+        } catch (error) {
+          console.error("API Error:", error);
+          return `خطأ في الاتصال: ${error.message}`;
+        }
+      }
+
+      // معالج إرسال الرسالة
+      async function handleSendMessage() {
+        const text = chatInput.value.trim();
+        if (!text || sendButton.disabled) return;
+        
+        // تعطيل الواجهة أثناء المعالجة
+        sendButton.disabled = true;
+        chatInput.disabled = true;
+        sendButton.textContent = "...";
+        
+        // إضافة رسالة المستخدم
+        addMessage(text, "user");
+        chatInput.value = "";
+
+        // إضافة مؤشر الكتابة
+        const typing = document.createElement("div");
+        typing.className = "typing";
+        typing.innerHTML = "جاري الكتابة <span></span><span></span><span></span>";
+        chatDisplay.appendChild(typing);
+        chatDisplay.scrollTop = chatDisplay.scrollHeight;
+
+        // الحصول على الرد
+        const reply = await sendMessageToAPI(text);
+        
+        // إزالة مؤشر الكتابة وإضافة الرد
+        typing.remove();
+        addMessage(reply, "bot");
+        
+        // إعادة تفعيل الواجهة
+        sendButton.disabled = false;
+        chatInput.disabled = false;
+        sendButton.textContent = "إرسال";
+        chatInput.focus();
+      }
+
+      // أحداث الإرسال
+      sendButton.addEventListener("click", handleSendMessage);
+      
+      chatInput.addEventListener("keypress", (e) => {
+        if (e.key === "Enter" && !sendButton.disabled) {
+          handleSendMessage();
+        }
+      });
+
+      console.log("Chatbot widget loaded successfully!");
+    })();
+    </script>
+</body>
+</html> 

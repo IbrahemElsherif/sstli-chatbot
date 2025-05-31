@@ -28,13 +28,37 @@ class NLPController(BaseController):
         collection_name = self.create_collection_name(project_id=project.project_id)
         return self.vectordb_client.delete_collection(collection_name=collection_name)
     
-    def get_vector_db_collection_info(self, project: Project) -> Dict[str, Any]:
-        collection_name = self.create_collection_name(project_id=project.project_id)
-        collection_info = self.vectordb_client.get_collection_info(collection_name=collection_name)
-
-        return json.loads(
-            json.dumps(collection_info, default=lambda x: x.__dict__)
-        )
+    def get_collection_info(self, project_id: str) -> dict:
+        try:
+            collection_name = self.create_collection_name(project_id=project_id)
+            
+            # Get collection info from vector database
+            collection_info = self.vectordb_client.get_collection_info(collection_name)
+            
+            if collection_info is None:
+                return {
+                    "exists": False,
+                    "message": f"Collection {collection_name} does not exist"
+                }
+            
+            # Ensure the response is JSON serializable
+            result = {
+                "exists": True,
+                "collection_name": collection_name,
+                "status": collection_info.get("status", "unknown"),
+                "points_count": collection_info.get("points_count", 0),
+                "vectors_count": collection_info.get("vectors_count", 0)
+            }
+            
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"Error getting collection info for project {project_id}: {e}")
+            return {
+                "exists": False,
+                "error": str(e),
+                "message": f"Error retrieving collection info: {str(e)}"
+            }
     
     def _fallback_embed(self, text: str) -> List[float]:
         """Generate a simple deterministic vector as fallback when API fails.
@@ -49,7 +73,17 @@ class NLPController(BaseController):
         digest = hash_obj.digest()
         
         # Convert to a normalized vector of the right size
-        embedding_size = self.app_settings.EMBEDDING_MODEL_SIZE
+        # Default to 1536 (OpenAI text-embedding-3-small size) if not available
+        embedding_size = 1536
+        try:
+            # Try to get size from embedding client if available
+            if hasattr(self.embedding_client, 'embedding_size'):
+                embedding_size = self.embedding_client.embedding_size
+            elif hasattr(self.embedding_client, 'model_size'):
+                embedding_size = self.embedding_client.model_size
+        except:
+            pass  # Use default
+            
         vector = []
         
         # Expand the 16-byte digest to fill the embedding size
@@ -72,238 +106,91 @@ class NLPController(BaseController):
         if not texts:
             return True
 
-        # Check if embedding client is properly initialized
+        # Test if API is working, otherwise use fallback
         use_fallback = False
-        if not hasattr(self.embedding_client, 'client') or self.embedding_client.client is None:
-            self.logger.error("Embedding client is not properly initialized. Falling back to simple embeddings.")
+        try:
+            self.logger.info("Testing OpenAI API connection...")
+            test_embedding = self.embedding_client.embed_text(text="test")
+            if test_embedding is None or len(test_embedding) == 0:
+                use_fallback = True
+        except Exception as e:
+            self.logger.warning(f"OpenAI API failed ({str(e)}). Using fallback embeddings.")
             use_fallback = True
 
-        # Create collection
+        # Create collection with proper embedding size
+        embedding_size = 1536  # Default OpenAI size
         try:
             self.vectordb_client.create_collection(
                 collection_name=collection_name,
-                embedding_size=self.app_settings.EMBEDDING_MODEL_SIZE,
+                embedding_size=embedding_size,
                 do_reset=do_reset
             )
         except Exception as e:
-            self.logger.error(f"Failed to create/access vector collection: {str(e)}")
+            self.logger.error(f"Failed to create vector collection: {str(e)}")
             return False
 
-        self.logger.info(f"Starting indexing of {len(texts)} chunks into vector DB")
+        self.logger.info(f"Starting indexing of {len(texts)} chunks using {'fallback' if use_fallback else 'API'} embeddings")
         start_time = time.time()
         
-        # If using fallback, generate embeddings without API calls
         if use_fallback:
-            self.logger.info("Using fallback embedding method")
+            # Generate fallback embeddings
             all_embeddings = []
-            for text in texts:
-                vector = self._fallback_embed(text)
-                all_embeddings.append(vector)
+            for i, text in enumerate(texts):
+                try:
+                    vector = self._fallback_embed(text)
+                    all_embeddings.append(vector)
+                    if i % 10 == 0:  # Log progress every 10 items
+                        self.logger.info(f"Generated fallback embeddings: {i+1}/{len(texts)}")
+                except Exception as e:
+                    self.logger.error(f"Error generating fallback embedding for text {i+1}: {str(e)}")
+                    return False
             
-            # Insert into vector DB
-            self.logger.info(f"Inserting {len(all_embeddings)} vectors into vector DB")
-            inserted = self.vectordb_client.insert_many(
+            self.logger.info(f"Generated {len(all_embeddings)} fallback embeddings successfully")
+            
+        else:
+            # Use API embeddings
+            all_embeddings = []
+            for i, text in enumerate(texts):
+                try:
+                    vector = self.embedding_client.embed_text(text=text)
+                    if vector:
+                        all_embeddings.append(vector)
+                    else:
+                        # Fallback for this specific text
+                        vector = self._fallback_embed(text)
+                        all_embeddings.append(vector)
+                        
+                    if i % 10 == 0:  # Log progress every 10 items
+                        self.logger.info(f"Generated API embeddings: {i+1}/{len(texts)}")
+                        
+                except Exception as e:
+                    self.logger.warning(f"API embedding failed for text {i+1}, using fallback: {str(e)}")
+                    vector = self._fallback_embed(text)
+                    all_embeddings.append(vector)
+
+        # Insert embeddings into vector database
+        if all_embeddings and len(all_embeddings) == len(texts):
+            self.logger.info(f"Inserting {len(all_embeddings)} vectors into database...")
+            
+            success = self.vectordb_client.insert_many(
                 collection_name=collection_name,
                 texts=texts,
                 vectors=all_embeddings,
                 metadata=metadata if metadata else None,
                 record_ids=chunks_ids if chunks_ids else None,
-                batch_size=len(all_embeddings)
+                batch_size=50
             )
             
             elapsed_time = time.time() - start_time
-            self.logger.info(f"Vector DB indexing complete. Processed {len(all_embeddings)} vectors in {elapsed_time:.2f} seconds")
             
-            return inserted
-
-        # Configuration for processing - optimized for OpenAI
-        embedding_batch_size = 100  # OpenAI can handle larger batches
-        vector_db_batch_size = 200  # Larger batches for faster vector DB insertion
-        
-        # Determine processing approach based on dataset size
-        small_batch = len(texts) <= 200  # For very small batches, optimize differently
-        
-        try:
-            # For small batches, process everything in one go
-            if small_batch:
-                self.logger.info(f"Small batch detected, processing all {len(texts)} chunks at once")
-                
-                # Get all embeddings at once
-                start_embed = time.time()
-                if hasattr(self.embedding_client, 'embed_batch'):
-                    vectors = self.embedding_client.embed_batch(texts)
-                else:
-                    # Fallback to individual embedding
-                    vectors = []
-                    for text in texts:
-                        vectors.append(self.embedding_client.embed_text(text=text))
-                embed_time = time.time() - start_embed
-                self.logger.info(f"Embedding completed in {embed_time:.2f} seconds")
-                
-                # Filter valid embeddings
-                valid_embeddings = []
-                valid_texts = []
-                valid_metadata = []
-                valid_ids = []
-                
-                for i, vector in enumerate(vectors):
-                    if vector is not None:
-                        valid_embeddings.append(vector)
-                        valid_texts.append(texts[i])
-                        
-                        if metadata:
-                            valid_metadata.append(metadata[i])
-                        
-                        if chunks_ids:
-                            valid_ids.append(chunks_ids[i])
-                
-                success_rate = len(valid_embeddings)/len(texts)*100 if texts else 0
-                self.logger.info(f"Successfully embedded {len(valid_embeddings)} out of {len(texts)} texts ({success_rate:.1f}%)")
-                
-                # Insert all vectors at once
-                if valid_embeddings:
-                    start_insert = time.time()
-                    self.vectordb_client.insert_many(
-                        collection_name=collection_name,
-                        texts=valid_texts,
-                        vectors=valid_embeddings,
-                        metadata=valid_metadata if valid_metadata else None,
-                        record_ids=valid_ids if valid_ids else None,
-                        batch_size=len(valid_embeddings)
-                    )
-                    insert_time = time.time() - start_insert
-                    self.logger.info(f"Vector DB insertion completed in {insert_time:.2f} seconds")
-            
+            if success:
+                self.logger.info(f"✅ Indexing completed successfully! Processed {len(all_embeddings)} vectors in {elapsed_time:.2f} seconds")
+                return True
             else:
-                # Configuration for larger batches
-                embedding_batch_size = 100  # OpenAI can handle larger batches
-                vector_db_batch_size = 200  # Larger batches for faster vector DB insertion
-                
-                # Phase 1: Generate all embeddings with better batching
-                all_embeddings = []
-                processed_count = 0
-                
-                # Use batch embedding if available
-                if hasattr(self.embedding_client, 'embed_batch'):
-                    self.logger.info("Using batch embedding for faster processing")
-                    
-                    for i in range(0, len(texts), embedding_batch_size):
-                        batch_end = min(i + embedding_batch_size, len(texts))
-                        batch_texts = texts[i:batch_end]
-                        batch_size = len(batch_texts)
-                        
-                        try:
-                            # Track progress
-                            self.logger.info(f"Generating embeddings batch {i//embedding_batch_size + 1} of {(len(texts) + embedding_batch_size - 1)//embedding_batch_size} ({processed_count}/{len(texts)} total)")
-                            
-                            # Get embeddings for batch
-                            vectors = self.embedding_client.embed_batch(batch_texts)
-                            if vectors:
-                                all_embeddings.extend(vectors)
-                                processed_count += batch_size
-                            
-                            # Add minimal delay to avoid rate limits
-                            if batch_end < len(texts):
-                                time.sleep(0.1)  # OpenAI can handle higher request rates
-                                
-                        except Exception as e:
-                            self.logger.error(f"Error in batch embedding: {str(e)}")
-                            
-                            # Fallback to individual processing if batch fails
-                            self.logger.info("Falling back to individual embedding")
-                            for j, text in enumerate(batch_texts):
-                                try:
-                                    vector = self.embedding_client.embed_text(text=text)
-                                    all_embeddings.append(vector)
-                                    processed_count += 1
-                                    
-                                    # Small delay for rate limiting
-                                    time.sleep(0.1)
-                                except Exception as inner_e:
-                                    self.logger.error(f"Error embedding text: {str(inner_e)}")
-                                    all_embeddings.append(None)
-                                    processed_count += 1
-                            
-                            # Add longer delay after an error
-                            time.sleep(1)  # Reduced delay for OpenAI
-                else:
-                    # Fallback to individual embedding
-                    self.logger.info("Using individual embedding process")
-                    
-                    for i in range(0, len(texts), embedding_batch_size):
-                        batch_end = min(i + embedding_batch_size, len(texts))
-                        batch_texts = texts[i:batch_end]
-                        
-                        # Track progress
-                        self.logger.info(f"Processing batch {i//embedding_batch_size + 1} of {(len(texts) + embedding_batch_size - 1)//embedding_batch_size} ({processed_count}/{len(texts)} total)")
-                        
-                        for text in batch_texts:
-                            try:
-                                vector = self.embedding_client.embed_text(text=text)
-                                all_embeddings.append(vector)
-                                processed_count += 1
-                            except Exception as e:
-                                self.logger.error(f"Error embedding individual text: {str(e)}")
-                                all_embeddings.append(None)
-                                processed_count += 1
-                                time.sleep(1)  # Reduced delay for OpenAI after error
-                        
-                        # Add controlled delay between batches
-                        if batch_end < len(texts):
-                            time.sleep(0.5)  # Reduced delay for OpenAI
-                            
-                # Phase 2: Filter valid embeddings
-                self.logger.info(f"Embedding phase complete. Processing successful embeddings.")
-                valid_embeddings = []
-                valid_texts = []
-                valid_metadata = []
-                valid_ids = []
-                
-                for i, vector in enumerate(all_embeddings):
-                    if vector is not None:
-                        valid_embeddings.append(vector)
-                        valid_texts.append(texts[i])
-                        
-                        if metadata:
-                            valid_metadata.append(metadata[i])
-                        
-                        if chunks_ids:
-                            valid_ids.append(chunks_ids[i])
-                
-                self.logger.info(f"Successfully embedded {len(valid_embeddings)} out of {len(texts)} texts ({len(valid_embeddings)/len(texts)*100:.1f}%)")
-                
-                # Phase 3: Insert all valid vectors to the vector DB in larger batches
-                if valid_embeddings:
-                    inserted_count = 0
-                    for i in range(0, len(valid_embeddings), vector_db_batch_size):
-                        batch_end = min(i + vector_db_batch_size, len(valid_embeddings))
-                        batch_size = batch_end - i
-                        
-                        try:
-                            self.logger.info(f"Inserting vector batch {i//vector_db_batch_size + 1} of {(len(valid_embeddings) + vector_db_batch_size - 1)//vector_db_batch_size} ({inserted_count}/{len(valid_embeddings)} total)")
-                            
-                            self.vectordb_client.insert_many(
-                                collection_name=collection_name,
-                                texts=valid_texts[i:batch_end],
-                                vectors=valid_embeddings[i:batch_end],
-                                metadata=valid_metadata[i:batch_end] if valid_metadata else None,
-                                record_ids=valid_ids[i:batch_end] if valid_ids else None,
-                                batch_size=vector_db_batch_size
-                            )
-                            
-                            inserted_count += batch_size
-                        except Exception as e:
-                            self.logger.error(f"Error inserting vectors batch: {str(e)}")
-                            time.sleep(0.5)  # Reduced wait time
-            
-            elapsed_time = time.time() - start_time
-            self.logger.info(f"Vector DB indexing complete. Processed {len(valid_embeddings if small_batch else valid_embeddings)} vectors in {elapsed_time:.2f} seconds")
-            
-            return True
-            
-        except Exception as e:
-            elapsed_time = time.time() - start_time
-            self.logger.error(f"Error in index_into_vector_db: {str(e)}, elapsed time: {elapsed_time:.2f} seconds")
+                self.logger.error("❌ Failed to insert vectors into database")
+                return False
+        else:
+            self.logger.error(f"❌ Embedding generation failed. Expected {len(texts)} embeddings, got {len(all_embeddings) if all_embeddings else 0}")
             return False
 
     def search_vector_db_collection(self, project: Project, text: str, limit: int = 10):

@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mini-RAG Management Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'dark-green': '#022601',
+                        'medium-green': '#67A65D',
+                        'deep-green': '#0F4001',
+                        'light-green': '#70BF5A',
+                        'bright-green': '#4DA624'
+                    }
+                }
+            }
+        }
+    </script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- Navigation -->
+    <nav class="bg-dark-green text-white shadow-lg">
+        <div class="container mx-auto px-4">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center space-x-4">
+                    <i class="fas fa-robot text-2xl text-bright-green"></i>
+                    <h1 class="text-xl font-bold">Mini-RAG Management</h1>
+                </div>
+                <div class="flex space-x-4">
+                    <a href="index.html" class="bg-medium-green px-4 py-2 rounded-lg hover:bg-light-green transition-colors">Management</a>
+                    <a href="chatbot.html" class="bg-deep-green px-4 py-2 rounded-lg hover:bg-medium-green transition-colors">Chatbot</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container mx-auto px-4 py-8">
+        <!-- Project Selection -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+            <h2 class="text-2xl font-bold text-dark-green mb-4">
+                <i class="fas fa-project-diagram mr-2"></i>Project Settings
+            </h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Project ID</label>
+                    <input type="text" id="projectId" value="1" 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-medium-green">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">API Base URL</label>
+                    <input type="text" id="apiUrl" value="https://1206-144-86-46-234.ngrok-free.app" 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-medium-green">
+                </div>
+            </div>
+            <div class="mt-4">
+                <button onclick="testApi()" 
+                        class="bg-deep-green text-white px-4 py-2 rounded-lg hover:bg-medium-green transition-colors">
+                    <i class="fas fa-flask mr-2"></i>Test API Connection
+                </button>
+                <div id="apiTestResult" class="hidden mt-4"></div>
+            </div>
+        </div>
+
+        <!-- Upload Section -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+            <h2 class="text-2xl font-bold text-dark-green mb-4">
+                <i class="fas fa-upload mr-2"></i>File Upload
+            </h2>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Select File</label>
+                    <input type="file" id="fileInput" accept=".txt,.pdf" 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-medium-green">
+                </div>
+                <button onclick="uploadFile()" 
+                        class="bg-bright-green text-white px-6 py-3 rounded-lg hover:bg-medium-green transition-colors">
+                    <i class="fas fa-cloud-upload-alt mr-2"></i>Upload File
+                </button>
+                <div id="uploadResult" class="hidden mt-4"></div>
+            </div>
+        </div>
+
+        <!-- Processing Section -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+            <h2 class="text-2xl font-bold text-dark-green mb-4">
+                <i class="fas fa-cogs mr-2"></i>Text Processing
+            </h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">File ID (optional)</label>
+                    <input type="text" id="fileId" placeholder="Leave empty to process all files" 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-medium-green">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Chunk Size</label>
+                    <input type="number" id="chunkSize" value="1000" 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-medium-green">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Overlap Size</label>
+                    <input type="number" id="overlapSize" value="150" 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-medium-green">
+                </div>
+            </div>
+            <div class="flex items-center space-x-4 mb-4">
+                <label class="flex items-center">
+                    <input type="checkbox" id="doReset" class="mr-2 text-medium-green">
+                    <span class="text-sm text-gray-700">Reset existing data</span>
+                </label>
+            </div>
+            <button onclick="processFiles()" 
+                    class="bg-bright-green text-white px-6 py-3 rounded-lg hover:bg-medium-green transition-colors">
+                <i class="fas fa-play mr-2"></i>Process Files
+            </button>
+            <div id="processResult" class="hidden mt-4"></div>
+        </div>
+
+        <!-- Indexing Section -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+            <h2 class="text-2xl font-bold text-dark-green mb-4">
+                <i class="fas fa-database mr-2"></i>Vector Database Indexing
+            </h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <div class="flex items-center space-x-4 mb-4">
+                        <label class="flex items-center">
+                            <input type="checkbox" id="resetIndex" class="mr-2 text-medium-green">
+                            <span class="text-sm text-gray-700">Reset existing index</span>
+                        </label>
+                    </div>
+                    <button onclick="pushToIndex()" 
+                            class="bg-bright-green text-white px-6 py-3 rounded-lg hover:bg-medium-green transition-colors">
+                        <i class="fas fa-arrow-up mr-2"></i>Push to Index
+                    </button>
+                    <div id="indexResult" class="hidden mt-4"></div>
+                </div>
+                <div>
+                    <button onclick="getIndexInfo()" 
+                            class="bg-medium-green text-white px-6 py-3 rounded-lg hover:bg-light-green transition-colors">
+                        <i class="fas fa-info-circle mr-2"></i>Get Index Info
+                    </button>
+                    <div id="indexInfo" class="hidden mt-4 p-4 bg-gray-50 rounded-lg"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Search Section -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+            <h2 class="text-2xl font-bold text-dark-green mb-4">
+                <i class="fas fa-search mr-2"></i>Index Search
+            </h2>
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                <div class="md:col-span-3">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Search Query</label>
+                    <input type="text" id="searchQuery" placeholder="Enter your search query..." 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-medium-green">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Limit</label>
+                    <input type="number" id="searchLimit" value="5" min="1" max="20" 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-medium-green">
+                </div>
+            </div>
+            <button onclick="searchIndex()" 
+                    class="bg-bright-green text-white px-6 py-3 rounded-lg hover:bg-medium-green transition-colors">
+                <i class="fas fa-search mr-2"></i>Search Index
+            </button>
+            <div id="searchResults" class="hidden mt-4"></div>
+        </div>
+    </div>
+
+    <!-- Loading Modal -->
+    <div id="loadingModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white p-8 rounded-lg text-center">
+            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-medium-green mx-auto mb-4"></div>
+            <p class="text-gray-700">Processing...</p>
+        </div>
+    </div>
+
+    <script src="management.js"></script>
+</body>
+</html> 
