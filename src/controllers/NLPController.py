@@ -8,6 +8,8 @@ import logging
 import asyncio
 import concurrent.futures
 import hashlib
+from langdetect import detect, LangDetectException
+
 
 class NLPController(BaseController):
 
@@ -60,7 +62,7 @@ class NLPController(BaseController):
         return vector
 
     def index_into_vector_db(self, project: Project, chunks: List[DataChunk],
-                         do_reset: bool = False, chunks_ids: List[int] = None) -> bool:
+                             do_reset: bool = False, chunks_ids: List[int] = None) -> bool:
         
         # step1: get collection name
         collection_name = self.create_collection_name(project_id=project.project_id)
@@ -117,30 +119,27 @@ class NLPController(BaseController):
             return inserted
 
         # Configuration for processing - optimized for OpenAI
-        embedding_batch_size = 100  # OpenAI can handle larger batches
-        vector_db_batch_size = 200  # Larger batches for faster vector DB insertion
+        embedding_batch_size = 100
+        vector_db_batch_size = 200
         
         # Determine processing approach based on dataset size
-        small_batch = len(texts) <= 200  # For very small batches, optimize differently
+        small_batch = len(texts) <= 200
         
         try:
             # For small batches, process everything in one go
             if small_batch:
                 self.logger.info(f"Small batch detected, processing all {len(texts)} chunks at once")
                 
-                # Get all embeddings at once
                 start_embed = time.time()
                 if hasattr(self.embedding_client, 'embed_batch'):
                     vectors = self.embedding_client.embed_batch(texts)
                 else:
-                    # Fallback to individual embedding
                     vectors = []
                     for text in texts:
                         vectors.append(self.embedding_client.embed_text(text=text))
                 embed_time = time.time() - start_embed
                 self.logger.info(f"Embedding completed in {embed_time:.2f} seconds")
                 
-                # Filter valid embeddings
                 valid_embeddings = []
                 valid_texts = []
                 valid_metadata = []
@@ -150,17 +149,14 @@ class NLPController(BaseController):
                     if vector is not None:
                         valid_embeddings.append(vector)
                         valid_texts.append(texts[i])
-                        
                         if metadata:
                             valid_metadata.append(metadata[i])
-                        
                         if chunks_ids:
                             valid_ids.append(chunks_ids[i])
                 
                 success_rate = len(valid_embeddings)/len(texts)*100 if texts else 0
                 self.logger.info(f"Successfully embedded {len(valid_embeddings)} out of {len(texts)} texts ({success_rate:.1f}%)")
                 
-                # Insert all vectors at once
                 if valid_embeddings:
                     start_insert = time.time()
                     self.vectordb_client.insert_many(
@@ -175,68 +171,47 @@ class NLPController(BaseController):
                     self.logger.info(f"Vector DB insertion completed in {insert_time:.2f} seconds")
             
             else:
-                # Configuration for larger batches
-                embedding_batch_size = 100  # OpenAI can handle larger batches
-                vector_db_batch_size = 200  # Larger batches for faster vector DB insertion
-                
-                # Phase 1: Generate all embeddings with better batching
                 all_embeddings = []
                 processed_count = 0
                 
-                # Use batch embedding if available
                 if hasattr(self.embedding_client, 'embed_batch'):
                     self.logger.info("Using batch embedding for faster processing")
                     
                     for i in range(0, len(texts), embedding_batch_size):
                         batch_end = min(i + embedding_batch_size, len(texts))
                         batch_texts = texts[i:batch_end]
-                        batch_size = len(batch_texts)
                         
                         try:
-                            # Track progress
                             self.logger.info(f"Generating embeddings batch {i//embedding_batch_size + 1} of {(len(texts) + embedding_batch_size - 1)//embedding_batch_size} ({processed_count}/{len(texts)} total)")
                             
-                            # Get embeddings for batch
                             vectors = self.embedding_client.embed_batch(batch_texts)
                             if vectors:
                                 all_embeddings.extend(vectors)
-                                processed_count += batch_size
+                                processed_count += len(batch_texts)
                             
-                            # Add minimal delay to avoid rate limits
                             if batch_end < len(texts):
-                                time.sleep(0.1)  # OpenAI can handle higher request rates
+                                time.sleep(0.1)
                                 
                         except Exception as e:
                             self.logger.error(f"Error in batch embedding: {str(e)}")
-                            
-                            # Fallback to individual processing if batch fails
                             self.logger.info("Falling back to individual embedding")
-                            for j, text in enumerate(batch_texts):
+                            for text in batch_texts:
                                 try:
                                     vector = self.embedding_client.embed_text(text=text)
                                     all_embeddings.append(vector)
                                     processed_count += 1
-                                    
-                                    # Small delay for rate limiting
                                     time.sleep(0.1)
                                 except Exception as inner_e:
                                     self.logger.error(f"Error embedding text: {str(inner_e)}")
                                     all_embeddings.append(None)
                                     processed_count += 1
-                            
-                            # Add longer delay after an error
-                            time.sleep(1)  # Reduced delay for OpenAI
+                            time.sleep(1)
                 else:
-                    # Fallback to individual embedding
                     self.logger.info("Using individual embedding process")
-                    
                     for i in range(0, len(texts), embedding_batch_size):
                         batch_end = min(i + embedding_batch_size, len(texts))
                         batch_texts = texts[i:batch_end]
-                        
-                        # Track progress
                         self.logger.info(f"Processing batch {i//embedding_batch_size + 1} of {(len(texts) + embedding_batch_size - 1)//embedding_batch_size} ({processed_count}/{len(texts)} total)")
-                        
                         for text in batch_texts:
                             try:
                                 vector = self.embedding_client.embed_text(text=text)
@@ -246,13 +221,10 @@ class NLPController(BaseController):
                                 self.logger.error(f"Error embedding individual text: {str(e)}")
                                 all_embeddings.append(None)
                                 processed_count += 1
-                                time.sleep(1)  # Reduced delay for OpenAI after error
-                        
-                        # Add controlled delay between batches
+                                time.sleep(1)
                         if batch_end < len(texts):
-                            time.sleep(0.5)  # Reduced delay for OpenAI
+                            time.sleep(0.5)
                             
-                # Phase 2: Filter valid embeddings
                 self.logger.info(f"Embedding phase complete. Processing successful embeddings.")
                 valid_embeddings = []
                 valid_texts = []
@@ -263,21 +235,17 @@ class NLPController(BaseController):
                     if vector is not None:
                         valid_embeddings.append(vector)
                         valid_texts.append(texts[i])
-                        
                         if metadata:
                             valid_metadata.append(metadata[i])
-                        
                         if chunks_ids:
                             valid_ids.append(chunks_ids[i])
                 
                 self.logger.info(f"Successfully embedded {len(valid_embeddings)} out of {len(texts)} texts ({len(valid_embeddings)/len(texts)*100:.1f}%)")
                 
-                # Phase 3: Insert all valid vectors to the vector DB in larger batches
                 if valid_embeddings:
                     inserted_count = 0
                     for i in range(0, len(valid_embeddings), vector_db_batch_size):
                         batch_end = min(i + vector_db_batch_size, len(valid_embeddings))
-                        batch_size = batch_end - i
                         
                         try:
                             self.logger.info(f"Inserting vector batch {i//vector_db_batch_size + 1} of {(len(valid_embeddings) + vector_db_batch_size - 1)//vector_db_batch_size} ({inserted_count}/{len(valid_embeddings)} total)")
@@ -288,13 +256,13 @@ class NLPController(BaseController):
                                 vectors=valid_embeddings[i:batch_end],
                                 metadata=valid_metadata[i:batch_end] if valid_metadata else None,
                                 record_ids=valid_ids[i:batch_end] if valid_ids else None,
-                                batch_size=vector_db_batch_size
+                                batch_size=len(valid_texts[i:batch_end])
                             )
                             
-                            inserted_count += batch_size
+                            inserted_count += len(valid_texts[i:batch_end])
                         except Exception as e:
                             self.logger.error(f"Error inserting vectors batch: {str(e)}")
-                            time.sleep(0.5)  # Reduced wait time
+                            time.sleep(0.5)
             
             elapsed_time = time.time() - start_time
             self.logger.info(f"Vector DB indexing complete. Processed {len(valid_embeddings if small_batch else valid_embeddings)} vectors in {elapsed_time:.2f} seconds")
@@ -305,6 +273,8 @@ class NLPController(BaseController):
             elapsed_time = time.time() - start_time
             self.logger.error(f"Error in index_into_vector_db: {str(e)}, elapsed time: {elapsed_time:.2f} seconds")
             return False
+
+
 
     def search_vector_db_collection(self, project: Project, text: str, limit: int = 10):
 
@@ -342,6 +312,18 @@ class NLPController(BaseController):
         
         answer, full_prompt, chat_history = None, None, None
 
+        # step0: Detect language and set the template
+        try:
+            # Detect the language of the user's query
+            detected_lang = detect(query)
+            self.logger.info(f"Detected languague: {detected_lang}")
+            
+            # Set the template parser to use the detected language ('en', 'ar', etc.)
+            self.template_parser.set_language(detected_lang)
+        except LangDetectException:
+            # If detection fails (e.g., for very short text), use the default
+            self.logger.warning("Language detection failed, using default language.")
+            self.template_parser.set_language(self.app_settings.DEFAULT_LANG)
         # step1: retrieve related documents
         retrieved_documents = self.search_vector_db_collection(
             project=project,
@@ -382,6 +364,9 @@ class NLPController(BaseController):
             prompt=full_prompt,
             chat_history=chat_history
         )
+        # IMPORTANT: Reset the parser back to the default language at the end
+        # This prevents the next request from using the wrong language if detection fails
+        self.template_parser.set_language(self.app_settings.DEFAULT_LANG)
 
         return answer, full_prompt, chat_history
 

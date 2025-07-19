@@ -7,6 +7,8 @@ from string import Template
 #### System ####
 
 system_prompt = Template("\n".join([
+"CRITICAL INSTRUCTION: You MUST reply in the same language as the user's question. If the question is in English, your response must be in English.",
+"---",
 "You are a virtual assistant for the Saudi Higher Specialized Training Institute. Follow these instructions carefully:",
     
     "# Your Identity and Capabilities",
