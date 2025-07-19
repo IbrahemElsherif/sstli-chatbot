@@ -2,10 +2,6 @@
 
 This is a minimal implementation of the RAG model for question answering.
 
-## The Course
-
-This is an educational project where all of the codes where explained (step by step) via a set of `Arabic` youtube videos. Please check the list:
-
 ## Requirements
 
 - Python 3.8 or later
@@ -28,9 +24,6 @@ $ conda activate mini-rag
 export PS1="\[\033[01;32m\]\u@\h:\w\n\[\033[00m\]\$ "
 ```
 
-### (Optional) Run Ollama Local LLM Server using Colab + Ngrok
-
-- Check the [notebook](https://colab.research.google.com/drive/1KNi3-9KtP-k-93T3wRcmRe37mRmGhL9p?usp=sharing) + [Video](https://youtu.be/-epZ1hAAtrs)
 
 ## Installation
 
@@ -73,3 +66,5 @@ $ uvicorn main:app --reload --host 0.0.0.0 --port 5000
 ## POSTMAN Collection
 
 Download the POSTMAN collection from [/assets/mini-rag-app.postman_collection.json](/assets/mini-rag-app.postman_collection.json)
+
+### To kill ports
